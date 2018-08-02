@@ -53,12 +53,15 @@
     [super scrollViewContentOffsetDidChange:change];
     
     // 在刷新的refreshing状态
+    // 获取最终的偏移量insetTDelta，以便在Refreshing转Idle状态时恢复初始状态
     if (self.state == MJRefreshStateRefreshing) {
         // 暂时保留
         if (self.window == nil) return;
         
         // sectionheader停留解决
         CGFloat insetT = - self.scrollView.mj_offsetY > _scrollViewOriginalInset.top ? - self.scrollView.mj_offsetY : _scrollViewOriginalInset.top;
+        
+        // self.mj_h + _scrollViewOriginalInset.top 相当于到达临界点所需要的下拉距离
         insetT = insetT > self.mj_h + _scrollViewOriginalInset.top ? self.mj_h + _scrollViewOriginalInset.top : insetT;
         self.scrollView.mj_insetT = insetT;
         
@@ -67,32 +70,44 @@
     }
     
     // 跳转到下一个控制器时，contentInset可能会变
-    _scrollViewOriginalInset = self.scrollView.mj_inset;
+    // 如：上一页面有导航栏，下一个页面导航栏隐藏
+    _scrollViewOriginalInset = self.scrollView.contentInset;
     
     // 当前的contentOffset
     CGFloat offsetY = self.scrollView.mj_offsetY;
     // 头部控件刚好出现的offsetY
     CGFloat happenOffsetY = - self.scrollViewOriginalInset.top;
+    //    NSLog(@"happenOffsetY --> %.2f,  offsetY --> %.2f", happenOffsetY, offsetY);
     
     // 如果是向上滚动到看不见头部控件，直接返回
     // >= -> >
     if (offsetY > happenOffsetY) return;
     
     // 普通 和 即将刷新 的临界点
-    CGFloat normal2pullingOffsetY = happenOffsetY - self.mj_h;
-    CGFloat pullingPercent = (happenOffsetY - offsetY) / self.mj_h;
+    CGFloat normal2pullingOffsetY = happenOffsetY - self.mj_h; // idle状态时的offset＋控件的高度
+    CGFloat pullingPercent = (happenOffsetY - offsetY) / self.mj_h; // （临界长度－已经移动的长度）／（可移动总长度）
     
+    //NSLog(@"pullingPercent:%lf", pullingPercent);
+    
+    // 如果正在拖拽，拖拽有可能是向上也可能向下；在临界点上方拖拽时状态为idle，在临界点下方拖拽时状态为pulling
     if (self.scrollView.isDragging) { // 如果正在拖拽
         self.pullingPercent = pullingPercent;
+        // 仅在临界点处进行状态切换，
+        // 下拉过程中状态不改变，仅过临界点后状态才进行修改
         if (self.state == MJRefreshStateIdle && offsetY < normal2pullingOffsetY) {
             // 转为即将刷新状态
             self.state = MJRefreshStatePulling;
-        } else if (self.state == MJRefreshStatePulling && offsetY >= normal2pullingOffsetY) {
+        }
+        // 向上拖拽时，状态为Pulling且过了临界点时状态更新
+        else if (self.state == MJRefreshStatePulling && offsetY >= normal2pullingOffsetY) {
             // 转为普通状态
             self.state = MJRefreshStateIdle;
         }
-    } else if (self.state == MJRefreshStatePulling) {// 即将刷新 && 手松开
-        // 开始刷新
+    }
+    // 放手停止拖拽，且状态为Pulling时，进行刷新
+    else if (self.state == MJRefreshStatePulling) {// 即将刷新 && 手松开
+        // 开始刷新。
+        // 内部方法对状态进行刷新设置，并重设inset、offset，重设时将发出通知，在Refreshing状态下获取最终偏移量insetTDelta。在Refreshing转Idle时恢复insetTDelta
         [self beginRefreshing];
     } else if (pullingPercent < 1) {
         self.pullingPercent = pullingPercent;
